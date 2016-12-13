@@ -37,16 +37,16 @@ function connect(mapStateToProps, mapDispatchToProps, mergeProps = undefined, op
     };
 }
 
-function getGuardComponent(UI) {
+function getGuardComponent(Component) {
     return props => {
         let trueState = props.__trueState__[0];
-        // 把mapStateToProps的计算逻辑放到WrappedUIComponent渲染时执行，减少不必要的性能损耗
+        // 把mapStateToProps的计算逻辑放到GuardComponent渲染时执行，减少不必要的性能损耗
         trueState = typeof trueState === 'function' ? trueState() : trueState;
         const stateAndCallbacks = {
             ...omit(props, props.__tempList__.split(',')),
             ...trueState
         };
-        return <UI {...stateAndCallbacks} />
+        return <Component {...stateAndCallbacks} />
     };
 }
 

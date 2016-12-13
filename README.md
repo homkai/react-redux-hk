@@ -1,7 +1,7 @@
 # react-redux-hk
 自动分析connect依赖的state，当且仅当mapStateToProps依赖的state改变时，才会重新计算mapStateToProps，进而触发重新渲染Component
 
-完全兼容react-redux的api，可直接替换
+完全兼容react-redux的api，可直接替代
 
 # 解决什么问题
 如下代码：
@@ -29,7 +29,7 @@ function mapStateToProps(state) {
     };
 }
 ```
-mapStateToProps返回的crumbInfo，即使实际依赖的listData、planId、unitId没有变，
+mapStateToProps返回的crumbInfo，即使实际依赖的listData、planId、unitId没有变（如只有showEditor改变时），
 getCrumbInfo每次执行return的引用都是不同的，这会导致react-redux的shallowEqual不一致，
 进而会重新渲染connect的Component
 

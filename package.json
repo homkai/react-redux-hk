@@ -1,7 +1,7 @@
 {
   "name": "react-redux-hk",
-  "version": "0.0.5",
-  "description": "Lightweight optimized alternative React bindings for Redux without immutable.js or reselect.",
+  "version": "0.0.6",
+  "description": "Lightweight optimized alternative react-redux. Auto analyze dependent state to reduce re-render",
   "main": "./lib/index.js",
   "repository": {
     "type": "git",
