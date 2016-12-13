@@ -6,6 +6,7 @@
 # 解决什么问题
 如下代码：
 ```js
+// 假定state定义如下
 const state = {
     listData: [],
     planId: 0,
@@ -13,27 +14,28 @@ const state = {
     showEditor: false
 };
 
-function getCrumbInfo(state) {
-    const plan = state.listData.filter(item => item.id === state.planId)[0];
-    const unit = plan.unitList.filter(item => item.id === state.unitId)[0];
+
+function getInfo(state) {
     return {
-        planName: plan.planName,
-        unitName: unit.unitName
+        planId: state.planId,
+        unitId: state.unitId
     };
 }
-
 function mapStateToProps(state) {
     return {
-        planList: state.listData,
-        crumbInfo: getCrumbInfo(state)
+        planList: state.listData.filter(item => (item.unitList.length > 0)),
+        info: getInfo(state)
     };
 }
 ```
-mapStateToProps返回的crumbInfo，即使实际依赖的listData、planId、unitId没有变（如只有showEditor改变时），
-getCrumbInfo每次执行return的引用都是不同的，这会导致react-redux的shallowEqual不一致，
+每次执行mapStateToProps返回的planList、info永远都是一个新的引用。
+当showEditor改变，而mapStateToProps实际依赖的listData、planId、unitId没有变时，
+mapStateToProps仍然会重新执行，connect的Component也会重新渲染，而这些是不必要的性能损耗。
+
+原理是mapStateToProps的返回值的某一项，值没有改，但是引用改了，导致react-redux的shallowEqual不一致，
 进而会重新渲染connect的Component
 
-业务代码中，这样的例子很常见，导致某一局部状态更新，牵一发而动全身，很多地方不需要重新渲染的，也重新渲染，大大降低页面性能
+业务代码中，这样的例子很常见，某一局部状态更新，牵一发而动全身，很多地方不需要重新渲染的，也重新渲染，大大降低页面性能
 
 # 常见的方案
 - Immutable.js 引入这个库的成本很高，需要很多地方都改成Immutable.js的API
