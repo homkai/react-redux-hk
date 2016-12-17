@@ -3,23 +3,35 @@
  */
 import React from 'react';
 import {connect as rrConnect, Provider} from 'react-redux';
-import omit from 'lodash/omit';
 
-const __depState__ = {};
+const PATH_SEP = '//';
+const DEP_STATE_DEPTH = 2;
+const DEP_OWN_PROPS_DEPTH = 1;
+
+const __depCache__ = {};
 const __trueState__ = [];
 
 function connect(mapStateToProps, mapDispatchToProps, mergeProps = undefined, options = {}) {
-    // 依赖的state是否pure——每次mapStateToProps执行依赖的state是否一样
-    const {pureDepState = true} = options;
+    // pureMapState表示mapStateToProps是否是纯函数，只依赖state和ownProps
+    let {pureMapState = true, depStateDepth = DEP_STATE_DEPTH} = options;
+    const uid = mapStateToProps.toString() + PATH_SEP + Math.random();
     return Component => {
-        const mapDepState = !mapStateToProps ? undefined : (store, ownProps) => {
-            const uid = mapStateToProps.toString();
-            const {depState, storeProxy} = getDepStateAndStoreProxy(uid, store, pureDepState);
-            __trueState__[0] = storeProxy
-                // 初次connect时，执行
-                ? mapStateToProps(storeProxy, ownProps)
-                : mapStateToProps.bind(null, store, ownProps);
-            const props = depState;
+        const mapDepState = !mapStateToProps ? undefined : (state, ownProps) => {
+            let depState = null;
+            // 如果是pureMapState则优先读缓存，避免重复分析depState
+            if (pureMapState && getDepStateCache(uid)) {
+                depState = {};
+                Object.keys(getDepStateCache(uid)).forEach(path => (depState[path] = getValueByPath(state, path)));
+                __trueState__[0] = mapStateToProps.bind(null, state, ownProps);
+            }
+            if (!depState) {
+                const result = analyzeDepState(uid, state, ownProps, mapStateToProps, depStateDepth);
+                depState = result.depState;
+                pureMapState = result.cacheable;
+                __trueState__[0] = result.stateProps;
+            }
+            const props = {...depState};
+            // __trueState__是个全局变量，引用不变，避开shallowEqual来传component真正需要的props
             props.__trueState__ = __trueState__;
             const tempList = [...Object.keys(props), '__tempList__'];
             return {
@@ -37,63 +49,120 @@ function connect(mapStateToProps, mapDispatchToProps, mergeProps = undefined, op
     };
 }
 
+// 就相当于给component一个门卫一样
+// 如果depState没变，门卫不会重新计算mapStateToProps，也不会通知component重新渲染
 function getGuardComponent(Component) {
     return props => {
         let trueState = props.__trueState__[0];
         // 把mapStateToProps的计算逻辑放到GuardComponent渲染时执行，减少不必要的性能损耗
         trueState = typeof trueState === 'function' ? trueState() : trueState;
+        const validProps = {...props};
+        const tempList = props.__tempList__.split(',');
+        Object.keys(validProps).forEach(key => (tempList.indexOf(key) > -1 && delete validProps[key]));
         const stateAndCallbacks = {
-            ...omit(props, props.__tempList__.split(',')),
+            ...validProps,
             ...trueState
         };
         return <Component {...stateAndCallbacks} />
     };
 }
 
-function getDepStateAndStoreProxy(uid, store, pureDepState) {
-    // 如果是pureDepState，则只分析一次依赖的state，再次执行直接返回新的depState
-    if (pureDepState && __depState__[uid]) {
-        const depState = __depState__[uid];
-        Object.keys(depState).forEach(path => (depState[path] = getStateByPath(store, path)));
-        return {depState};
-    }
-    __depState__[uid] = __depState__[uid] || {};
-    const depState = __depState__[uid];
-    const storeProxy = {};
-    Object.keys(store).forEach(namespace => {
-        Object.defineProperty(storeProxy, namespace, {
-            get() {
-                const obj = {...store[namespace]};
-                Object.keys(store[namespace]).forEach(key => {
-                    Object.defineProperty(obj, key, {
-                        get() {
-                            const value = store[namespace][key];
-                            depState[namespace + '/' + key] = value;
-                            // 判断是否依赖整个model的state
-                            if (depState[namespace]) {
-                                const keyList = Object.keys(depState).filter(key => !key.indexOf(namespace + '/'));
-                                if (keyList.length === Object.keys(depState[namespace]).length) {
-                                    delete depState[namespace];
-                                }
-                            }
-                            return value;
-                        }
-                    });
-                });
-                depState[namespace] = store[namespace];
-                return obj;
+// 分析mapStateToProps真正依赖到的状态 depState
+function analyzeDepState(uid, state, ownProps, mapState, depStateDepth) {
+    const stateUid = uid + PATH_SEP + 'state';
+    const ownPropsUid = uid + PATH_SEP + 'ownProps';
+    const {cacheDep: cacheDepState, dep: depState} = buildCacheDep(stateUid);
+    const stateProxy = proxyObj(state, cacheDepState, depStateDepth);
+    const {cacheDep: cacheDepProps, dep: depProps} = buildCacheDep(ownPropsUid);
+    const propsProxy = proxyObj(ownProps, cacheDepProps, DEP_OWN_PROPS_DEPTH);
+    const stateProps = mapState(stateProxy, propsProxy);
+
+    const ret = {stateProps};
+
+    // 判断是否依赖ownProps，如果依赖，则不缓存
+    ret.cacheable = !Object.keys(depProps).length;
+    removeDepCache(ownPropsUid);
+
+    // 过滤依赖obj.key而不依赖obj的depState
+    const depObjStatePathList = Object.keys(depState)
+        .filter(item => item.split(PATH_SEP).length <= depStateDepth && typeof depState[item] === 'object');
+    if (depObjStatePathList.length) {
+        const depObjStateRefList = depObjStatePathList.map(item => depState[item]);
+        removeObjStateDep(depObjStateRefList, stateProps);
+        Object.keys(depState).forEach(key => {
+            if (depObjStateRefList.indexOf(depState[key]) > -1) {
+                delete depState[key];
             }
         });
-    });
+    }
+    ret.depState = depState;
+
+    return ret;
+}
+
+// 当依赖了具体的obj.key时，移除实际不需要的对整个obj的依赖
+function removeObjStateDep(depObjStateRefList, stateProps) {
+    if (depObjStateRefList.indexOf(stateProps) > -1) {
+        depObjStateRefList.splice(depObjStateRefList.indexOf(stateProps), 1);
+        if (!depObjStateRefList.length) {
+            return;
+        }
+    }
+    if (stateProps && typeof stateProps === 'object') {
+        const statePropsKeyList = Object.keys(stateProps);
+        for (let i = 0; i < statePropsKeyList.length; i++) {
+            const value = stateProps[statePropsKeyList[i]];
+            value && typeof value === 'object' && removeObjStateDep(depObjStateRefList, value);
+        }
+    }
+}
+
+function buildCacheDep(uid) {
+    __depCache__[uid] = __depCache__[uid] || {};
+    const dep = __depCache__[uid];
     return {
-        depState,
-        storeProxy
+        cacheDep: (path, value) => {dep[path] = value},
+        dep
     };
 }
 
-function getStateByPath(state, path) {
-    const [namespace, field] = path.split('/');
-    return field ? state[namespace][field] : state[namespace];
+function getDepStateCache(uid) {
+    return __depCache__[uid + PATH_SEP + 'state'];
+}
+
+function removeDepCache(uid) {
+    delete __depCache__[uid];
+}
+
+function proxyObj(obj, cb, depth = 100, keyPath = PATH_SEP) {
+    const objProxy = keyPath === PATH_SEP ? {} : obj;
+    Object.keys(obj).forEach(key => {
+        const path = keyPath + key;
+        let value = obj[key];
+        if (typeof value === 'object' && depth > 1) {
+            value = Array.isArray(obj[key]) ? [...obj[key]] : {...obj[key]};
+            value && proxyObj(value, cb, depth - 1, path + PATH_SEP);
+        }
+        Object.defineProperty(objProxy, key, {
+            get() {
+                cb(path, value);
+                return value;
+            }
+        });
+    });
+    return objProxy;
+}
+
+function getValueByPath(obj, path) {
+    const keyList = path.split(PATH_SEP);
+    let ret = obj;
+    for (let i = 0; i < keyList.length; i++) {
+        if (!keyList[i]) {
+            continue;
+        }
+        ret = ret[keyList[i]];
+    }
+    return ret;
 }
 
 

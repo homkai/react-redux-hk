@@ -44,4 +44,16 @@ mapStateToProps仍然会重新执行，connect的Component也会重新渲染，�
 # react-redux-hk的思路
 自动分析mapStateToProps依赖的state，只有当依赖的state改变时，才会重新计算mapStateToProps，进而触发重新渲染Component
 
+## 注意
+使用react-redux-hk替换react-redux时，要保证mapStateToProps是只依赖state和ownProps这两个变量的纯函数（可以依赖外部的常量）
+
+如果mapStateToProps依赖其他变量（这是违反redux原则的，极力反对这样的代码），可以通过传第四个参数options.pureMapState = false来兼容
+
+## 高级用法
+
+react-redux-hk默认对redux的状态，分析两层（第一层reducer或model，第二层定义的状态字段），这是符合redux状态定义原则的，一般无需修改
+
+如果状态的定义有过多的plain object（把一些子状态放到一同个状态对象下面，当然，一般是不推荐这种写法的）
+可以通过传第四个参数options.depStateDepth = 3来调整分析依赖的深度，如果这个值设置得适当大一些，那么可能会找到mobX的影子
+
 **不需要额外处理，即可自动完成性能优化**
