@@ -9,7 +9,7 @@ const DEP_STATE_DEPTH = 2;
 const DEP_OWN_PROPS_DEPTH = 1;
 
 const __depCache__ = {};
-const __trueState__ = [];
+const __trueState__ = {};
 
 function connect(mapStateToProps, mapDispatchToProps, mergeProps = undefined, options = {}) {
     // pureMapState表示mapStateToProps是否是纯函数，只依赖state和ownProps
@@ -17,35 +17,36 @@ function connect(mapStateToProps, mapDispatchToProps, mergeProps = undefined, op
     const uid = mapStateToProps.toString() + PATH_SEP + Math.random();
     return Component => {
         const mapDepState = !mapStateToProps ? undefined : (state, ownProps) => {
-            let depState = null;
-            // 如果是pureMapState则优先读缓存，避免重复分析depState
-            if (pureMapState && getDepStateCache(uid)) {
-                depState = {};
-                Object.keys(getDepStateCache(uid)).forEach(path => (depState[path] = getValueByPath(state, path)));
-                __trueState__[0] = mapStateToProps.bind(null, state, ownProps);
-            }
-            if (!depState) {
-                const result = analyzeDepState(uid, state, ownProps, mapStateToProps, depStateDepth);
-                depState = result.depState;
-                pureMapState = result.cacheable;
-                __trueState__[0] = result.stateProps;
-            }
-            const props = {...depState};
-            // __trueState__是个全局变量，引用不变，避开shallowEqual来传component真正需要的props
-            props.__trueState__ = __trueState__;
-            const tempList = [...Object.keys(props), '__tempList__'];
-            return {
-                ...props,
-                __tempList__: tempList.join(',')
+                let depState = null;
+                // 如果是pureMapState则优先读缓存，避免重复分析depState
+                if (pureMapState && getDepStateCache(uid)) {
+                    depState = {};
+                    Object.keys(getDepStateCache(uid)).forEach(path => (depState[path] = getValueByPath(state, path)));
+                    updateDepStateCache(uid, depState);
+                    __trueState__[uid] = mapStateToProps.bind(null, state, ownProps);
+                }
+                if (!depState) {
+                    const result = analyzeDepState(uid, state, ownProps, mapStateToProps, depStateDepth);
+                    depState = result.depState;
+                    pureMapState = result.cacheable;
+                    __trueState__[uid] = result.stateProps;
+                }
+                const props = {...depState};
+                // __trueState__是个全局变量，引用不变，避开shallowEqual来传component真正需要的props
+                props.__trueState__ = __trueState__;
+                props.__uid__ = uid;
+                const tempList = [...Object.keys(props), '__tempList__'];
+                return {
+                    ...props,
+                    __tempList__: tempList.join(',')
+                };
             };
-        };
-        Component = getGuardComponent(Component);
         return rrConnect(
             mapDepState,
             mapDispatchToProps,
             mergeProps,
             options
-        )(Component);
+        )(getGuardComponent(Component));
     };
 }
 
@@ -53,16 +54,19 @@ function connect(mapStateToProps, mapDispatchToProps, mergeProps = undefined, op
 // 如果depState没变，门卫不会重新计算mapStateToProps，也不会通知component重新渲染
 function getGuardComponent(Component) {
     return props => {
-        let trueState = props.__trueState__[0];
-        // 把mapStateToProps的计算逻辑放到GuardComponent渲染时执行，减少不必要的性能损耗
-        trueState = typeof trueState === 'function' ? trueState() : trueState;
-        const validProps = {...props};
-        const tempList = props.__tempList__.split(',');
-        Object.keys(validProps).forEach(key => (tempList.indexOf(key) > -1 && delete validProps[key]));
-        const stateAndCallbacks = {
-            ...validProps,
-            ...trueState
-        };
+        let stateAndCallbacks = props;
+        if (props.__trueState__) {
+            let trueState = props.__trueState__[props.__uid__];
+            // 把mapStateToProps的计算逻辑放到GuardComponent渲染时执行，减少不必要的性能损耗
+            trueState = typeof trueState === 'function' ? trueState() : trueState;
+            const validProps = {...props};
+            const tempList = props.__tempList__.split(',');
+            Object.keys(validProps).forEach(key => (tempList.indexOf(key) > -1 && delete validProps[key]));
+            stateAndCallbacks = {
+                ...validProps,
+                ...trueState
+            };
+        }
         return <Component {...stateAndCallbacks} />
     };
 }
@@ -128,6 +132,10 @@ function buildCacheDep(uid) {
 
 function getDepStateCache(uid) {
     return __depCache__[uid + PATH_SEP + 'state'];
+}
+
+function updateDepStateCache(uid, depState) {
+    __depCache__[uid + PATH_SEP + 'state'] = {...depState};
 }
 
 function removeDepCache(uid) {

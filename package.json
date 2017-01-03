@@ -1,6 +1,6 @@
 {
   "name": "react-redux-hk",
-  "version": "0.0.8",
+  "version": "0.1.0",
   "description": "Lightweight optimized alternative react-redux. Auto analyze dependent state to reduce re-render",
   "main": "./lib/index.js",
   "repository": {
@@ -27,7 +27,7 @@
     "redux": "3.x"
   },
   "dependencies": {
-    "react-redux": "^4.4.6"
+    "react-redux": "^5.0.1"
   },
   "devDependencies": {
     "babel-core": "^6.18.0",
