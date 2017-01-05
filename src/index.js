@@ -49,19 +49,17 @@ function connect(mapStateToProps, mapDispatchToProps, mergeProps = undefined, op
             mapDispatchToProps,
             mergeProps,
             options
-        )(getGuardComponent(Component));
+        )(buildGuardComponent(Component));
     };
 }
 
 // 就相当于给component一个门卫一样
 // 如果depState没变，门卫不会重新计算mapStateToProps，也不会通知component重新渲染
-function getGuardComponent(Component) {
+function buildGuardComponent(Component) {
     return props => {
         let stateAndCallbacks = props;
         if (props.__trueState__) {
-            let trueState = props.__trueState__[props.__uid__];
-            // 把mapStateToProps的计算逻辑放到GuardComponent渲染时执行，减少不必要的性能损耗
-            trueState = typeof trueState === 'function' ? trueState() : trueState;
+            const trueState = props.__trueState__[props.__uid__];
             const validProps = {...props};
             const tempList = props.__tempList__.split(',');
             Object.keys(validProps).forEach(key => (tempList.indexOf(key) > -1 && delete validProps[key]));
