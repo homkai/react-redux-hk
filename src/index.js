@@ -18,56 +18,51 @@ function connect(mapStateToProps, mapDispatchToProps, mergeProps = undefined, op
     const uid = mapStateToProps.toString() + PATH_SEP + Math.random();
     return Component => {
         const mapDepState = !mapStateToProps ? undefined : (state, ownProps) => {
-            let depState = null;
-            // 如果是pureMapState则优先读缓存，避免重复分析depState
-            if (pureMapState && getDepStateCache(uid)) {
-                depState = {};
-                Object.keys(getDepStateCache(uid)).forEach(path => (depState[path] = getValueByPath(state, path)));
-                // 如果新的depState有更新（shallowEqual不一致），则重新分析依赖
-                if (updateDepStateCache(uid, depState)) {
-                    depState = null;
+                let depState = null;
+                // 如果是pureMapState则优先读缓存，避免重复分析depState
+                if (pureMapState && getDepStateCache(uid)) {
+                    depState = {};
+                    Object.keys(getDepStateCache(uid)).forEach(path => (depState[path] = getValueByPath(state, path)));
+                    // 如果新的depState有更新（shallowEqual不一致），则重新分析依赖
+                    if (updateDepStateCache(uid, depState)) {
+                        depState = null;
+                    }
                 }
-            }
-            if (!depState) {
-                const result = analyzeDepState(uid, state, ownProps, mapStateToProps, depStateDepth);
-                depState = result.depState;
-                pureMapState = result.cacheable;
-                __trueState__[uid] = result.stateProps;
-            }
-            const props = {...depState};
-            // __trueState__是个全局变量，引用不变，避开shallowEqual来传component真正需要的props
-            props.__trueState__ = __trueState__;
-            props.__uid__ = uid;
-            const tempList = [...Object.keys(props), '__tempList__'];
-            return {
-                ...props,
-                __tempList__: tempList.join(',')
+                if (!depState) {
+                    const result = analyzeDepState(uid, state, ownProps, mapStateToProps, depStateDepth);
+                    depState = result.depState;
+                    pureMapState = result.cacheable;
+                    __trueState__[uid] = result.stateProps;
+                }
+                const props = {...depState};
+                props.__trueState__ = __trueState__[uid];
+                const tempList = [...Object.keys(props), '__tempList__'];
+                return {
+                    ...props,
+                    __tempList__: tempList.join(',')
+                };
             };
-        };
         return rrConnect(
             mapDepState,
             mapDispatchToProps,
             mergeProps,
             options
-        )(getGuardComponent(Component));
+        )(buildGuardComponent(Component));
     };
 }
 
 // 就相当于给component一个门卫一样
 // 如果depState没变，门卫不会重新计算mapStateToProps，也不会通知component重新渲染
-function getGuardComponent(Component) {
+function buildGuardComponent(Component) {
     return props => {
         let stateAndCallbacks = props;
         if (props.__trueState__) {
-            let trueState = props.__trueState__[props.__uid__];
-            // 把mapStateToProps的计算逻辑放到GuardComponent渲染时执行，减少不必要的性能损耗
-            trueState = typeof trueState === 'function' ? trueState() : trueState;
             const validProps = {...props};
             const tempList = props.__tempList__.split(',');
             Object.keys(validProps).forEach(key => (tempList.indexOf(key) > -1 && delete validProps[key]));
             stateAndCallbacks = {
                 ...validProps,
-                ...trueState
+                ...props.__trueState__
             };
         }
         return <Component {...stateAndCallbacks} />
