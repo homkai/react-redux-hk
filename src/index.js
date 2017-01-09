@@ -17,7 +17,9 @@ function connect(mapStateToProps, mapDispatchToProps, mergeProps = undefined, op
     let {pureMapState = true, depStateDepth = DEP_STATE_DEPTH} = options;
     const uid = mapStateToProps.toString() + PATH_SEP + Math.random();
     return Component => {
-        const mapDepState = !mapStateToProps ? undefined : (state, ownProps) => {
+        const mapDepState = !mapStateToProps
+            ? undefined
+            : (state, ownProps) => {
                 let depState = null;
                 // 如果是pureMapState则优先读缓存，避免重复分析depState
                 if (pureMapState && getDepStateCache(uid)) {
