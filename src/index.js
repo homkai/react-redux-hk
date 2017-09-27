@@ -7,13 +7,14 @@ import shallowEqual from 'react-redux/lib/utils/shallowEqual';
 
 const PATH_SEP = '//';
 const DEP_STATE_DEPTH = 2;
+const DEP_OWN_PROPS_DEPTH = 1;
 
 const __depCache__ = {};
 const __trueState__ = {};
 
 function connect(mapStateToProps, mapDispatchToProps, mergeProps, options) {
     // pureMapState表示mapStateToProps是否是纯函数，只依赖state和ownProps
-    let {pureMapState = true, depStateDepth = DEP_STATE_DEPTH} = options || {};
+    let {pureMapState = 'to test', depStateDepth = DEP_STATE_DEPTH} = options || {};
     const uid = mapStateToProps.toString() + PATH_SEP + Math.random();
     return Component => {
         const mapDepState = !mapStateToProps
@@ -33,7 +34,8 @@ function connect(mapStateToProps, mapDispatchToProps, mergeProps, options) {
                     }
                 }
                 if (!depState) {
-                    const result = analyzeDepState(uid, state, ownProps, mapStateToProps, depStateDepth);
+                    const testOwnProps = pureMapState === true ? {} : ownProps;
+                    const result = analyzeDepState(uid, state, testOwnProps, mapStateToProps, depStateDepth);
                     depState = result.depState;
                     pureMapState = result.cacheable;
                     __trueState__[uid] = result.stateProps;
@@ -75,33 +77,33 @@ function buildGuardComponent(Component) {
 
 // 分析mapStateToProps真正依赖到的状态 depState
 function analyzeDepState(uid, state, ownProps, mapState, depStateDepth) {
-    const ret = {};
+    const stateUid = uid + PATH_SEP + 'state';
+    const ownPropsUid = uid + PATH_SEP + 'ownProps';
+    const {cacheDep: cacheDepState, dep: depState} = buildCacheDep(stateUid);
+    const stateProxy = proxyObj(state, cacheDepState, depStateDepth);
+    const {cacheDep: cacheDepProps, dep: depProps} = buildCacheDep(ownPropsUid);
+    const propsProxy = proxyObj(ownProps, cacheDepProps, DEP_OWN_PROPS_DEPTH);
+    const stateProps = mapState(stateProxy, propsProxy);
+
+    const ret = {stateProps};
+
     // 判断是否依赖ownProps，如果依赖，则不缓存
-    ret.cacheable = !ownProps || !Object.keys(ownProps).length;
-    if (ret.cacheable) {
-        const stateUid = uid + PATH_SEP + 'state';
-        const {cacheDep: cacheDepState, dep: depState} = buildCacheDep(stateUid);
-        const stateProxy = proxyObj(state, cacheDepState, depStateDepth);
-        const stateProps = mapState(stateProxy);
-        // 过滤依赖obj.key而不依赖obj的depState
-        const depObjStatePathList = Object.keys(depState)
-            .filter(item => item.split(PATH_SEP).length <= depStateDepth && typeof depState[item] === 'object');
-        if (depObjStatePathList.length) {
-            const depObjStateRefList = depObjStatePathList.map(item => depState[item]);
-            removeObjStateDep(depObjStateRefList, stateProps);
-            Object.keys(depState).forEach(key => {
-                if (depObjStateRefList.indexOf(depState[key]) > -1) {
-                    delete depState[key];
-                }
-            });
-        }
-        ret.depState = depState;
-        ret.stateProps = stateProps;
+    ret.cacheable = !Object.keys(depProps).length;
+    removeDepCache(ownPropsUid);
+
+    // 过滤依赖obj.key而不依赖obj的depState
+    const depObjStatePathList = Object.keys(depState)
+        .filter(item => item.split(PATH_SEP).length <= depStateDepth && typeof depState[item] === 'object');
+    if (depObjStatePathList.length) {
+        const depObjStateRefList = depObjStatePathList.map(item => depState[item]);
+        removeObjStateDep(depObjStateRefList, stateProps);
+        Object.keys(depState).forEach(key => {
+            if (depObjStateRefList.indexOf(depState[key]) > -1) {
+                delete depState[key];
+            }
+        });
     }
-    else {
-        ret.depState = {};
-        ret.stateProps = mapState(state, ownProps);
-    }
+    ret.depState = depState;
 
     return ret;
 }
@@ -144,14 +146,18 @@ function updateDepStateCache(uid, depState) {
     return true;
 }
 
+function removeDepCache(uid) {
+    delete __depCache__[uid];
+}
+
 function proxyObj(obj, cb, depth = 100, keyPath = PATH_SEP) {
     const objProxy = keyPath === PATH_SEP ? {} : obj;
     Object.keys(obj).forEach(key => {
         const path = keyPath + key;
         let value = obj[key];
-        if (typeof value === 'object' && depth > 1) {
+        if (typeof value === 'object' && value && depth > 1) {
             value = Array.isArray(obj[key]) ? [...obj[key]] : {...obj[key]};
-            value && proxyObj(value, cb, depth - 1, path + PATH_SEP);
+            proxyObj(value, cb, depth - 1, path + PATH_SEP);
         }
         Object.defineProperty(objProxy, key, {
             get() {

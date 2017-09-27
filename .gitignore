@@ -49,6 +49,7 @@ Temporary Items
 # node
 **/node_modules
 **/npm-debug.log
+package-lock.json
 
 # lib
 lib
