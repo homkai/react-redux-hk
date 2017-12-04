@@ -13,7 +13,7 @@ const __depCache__ = {};
 const __trueState__ = {};
 
 function connect(mapStateToProps, mapDispatchToProps, mergeProps, options) {
-    // pureMapState表示mapStateToProps是否是纯函数，只依赖state和ownProps
+    // pureMapState true表示mapStateToProps只依赖state false表示不做优化
     let {pureMapState = 'to test', depStateDepth = DEP_STATE_DEPTH} = options || {};
     const uid = mapStateToProps.toString() + PATH_SEP + Math.random();
     return Component => {
