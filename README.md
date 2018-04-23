@@ -54,6 +54,8 @@ mapStateToProps仍然会重新执行，connect的Component也会重新渲染，�
 react-redux-hk默认对redux的状态，分析两层（第一层reducer或model，第二层定义的状态字段），这是符合redux状态定义原则的，一般无需修改
 
 如果状态的定义有过多的plain object（把一些子状态放到一同个状态对象下面，当然，一般是不推荐这种写法的）
-可以通过传第四个参数options.depStateDepth = 3来调整分析依赖的深度，如果这个值设置得适当大一些，那么可能会找到mobX的影子
+可以通过传第四个参数options.depStateDepth = 3来调整分析依赖的深度
 
 **不需要额外处理，即可自动完成性能优化**
+
+*已知问题：当state树特别大的时候，IE可能会有问题*
